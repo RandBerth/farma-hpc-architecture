@@ -1,0 +1,2249 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AyniFlux. — Arquitectura HPC, Micro-Batching & Orquestación PostgreSQL</title>
+  <style>
+    :root {
+      --navy-900: #0F172A;     /* Primario: Azul marino profundo (Estructura, títulos y botones primarios) */
+      --navy-800: #1E293B;     /* Primario hover */
+      --sky-500: #0EA5E9;      /* Acento: Celeste tecnológico (Punto de marca, kickers, enlaces destacados) */
+      --sky-400: #38BDF8;      /* Acento hover */
+      --bg-main: #F8FAFC;      /* Fondo principal: Blanco frío / Slate suave */
+      --bg-card: #FFFFFF;      /* Fondo de tarjetas e insumos */
+      --text-main: #0F172A;    /* Texto principal */
+      --text-sub: #475569;     /* Texto secundario y descripciones */
+      --text-muted: #94A3B8;   /* Texto tenue / pie de página */
+      --border-color: #E2E8F0; /* Bordes y divisores finos de 1px */
+
+      --status-ok: #0D9488;
+      --status-warn: #D97706;
+      --status-err: #E11D48;
+
+      --sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --mono: ui-monospace, "SF Mono", "JetBrains Mono", Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg-main);
+      color: var(--text-main);
+      font-family: var(--sans);
+      font-size: 14px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+    .kicker {
+      font-size: 0.75rem;
+      letter-spacing: 0.14em;
+      font-weight: 700;
+      color: var(--sky-500);
+      text-transform: uppercase;
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    /* CABECERA CORPORATIVA EDITORIAL */
+    .topbar {
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border-color);
+      height: 62px;
+      padding: 0 28px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 40;
+    }
+    .brand-group { display: flex; align-items: baseline; gap: 16px; }
+    .brand-mark {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--navy-900);
+      text-decoration: none;
+    }
+    .brand-mark span { color: var(--sky-500); }
+    .brand-divider { width: 1px; height: 18px; background: var(--border-color); align-self: center; }
+    .brand-project { font-size: 13px; font-weight: 600; color: var(--text-sub); }
+
+    .topbar-right { display: flex; align-items: center; gap: 10px; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 999px;
+      padding: 5px 12px;
+      font-size: 11.5px;
+      font-weight: 500;
+      color: var(--text-sub);
+    }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); }
+    .status-dot.online { background: var(--status-ok); }
+    .status-dot.active { background: var(--sky-500); }
+
+    /* ESTRUCTURA LATERAL + ESCENARIO PRINCIPAL */
+    .app-shell {
+      display: grid;
+      grid-template-columns: 290px 1fr;
+      min-height: calc(100vh - 62px);
+      max-width: 1620px;
+      margin: 0 auto;
+    }
+    @media (max-width: 1024px) {
+      .app-shell { grid-template-columns: 1fr; }
+    }
+
+    .sidebar {
+      background: var(--bg-card);
+      border-right: 1px solid var(--border-color);
+      padding: 22px 18px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 20px;
+    }
+    .nav-section-label {
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      padding: 0 10px 8px;
+      border-bottom: 1px solid var(--border-color);
+      margin-bottom: 8px;
+    }
+    .nav-list { list-style: none; display: flex; flex-direction: column; gap: 3px; }
+    .nav-item {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text-sub);
+      font-size: 13px;
+      font-weight: 500;
+      text-align: left;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .nav-item:hover {
+      background: var(--bg-main);
+      color: var(--text-main);
+    }
+    .nav-item.active {
+      background: var(--bg-main);
+      border-color: var(--border-color);
+      color: var(--navy-900);
+      font-weight: 700;
+    }
+    .nav-num {
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--sky-500);
+      min-width: 20px;
+    }
+
+    /* WIDGET DE TELEMETRÍA DE NÚCLEOS INTEGRADO EN LA BARRA LATERAL */
+    .sidebar-telemetry {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border-color);
+    }
+    .tele-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 8px;
+    }
+    .tele-title {
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+    .tele-subblock {
+      background: var(--bg-main);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+    .tele-subblock:last-child { margin-bottom: 0; }
+    .tele-node-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--navy-900);
+      margin-bottom: 7px;
+    }
+    .tele-node-pct {
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--sky-500);
+    }
+
+    /* Micro-celdas armónicas para 2 núcleos Maestro y 16 hilos Esclavo */
+    .mini-master-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 6px;
+    }
+    .mini-slave-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 5px;
+    }
+    .mini-core {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 5px;
+      padding: 4px 5px;
+    }
+    .mini-core-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: var(--mono);
+      font-size: 9.5px;
+      line-height: 1.2;
+      margin-bottom: 3px;
+    }
+    .mini-core-id { color: var(--text-muted); font-weight: 600; }
+    .mini-core-val { color: var(--navy-900); font-weight: 700; }
+    .mini-bar-track {
+      width: 100%;
+      height: 3.5px;
+      background: var(--bg-main);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .mini-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--sky-500);
+      transition: width 0.25s ease;
+    }
+
+    .sidebar-footer {
+      padding-top: 14px;
+      border-top: 1px solid var(--border-color);
+      font-size: 12px;
+      color: var(--text-sub);
+    }
+    .sidebar-footer p { margin-top: 4px; color: var(--text-muted); font-size: 11px; line-height: 1.45; }
+
+    /* ESCENARIO PRINCIPAL */
+    .stage { padding: 30px 38px 56px; max-width: 1260px; }
+    @media (max-width: 768px) { .stage { padding: 20px; } }
+
+    .view-section { display: none; }
+    .view-section.active { display: block; }
+
+    .page-header {
+      padding-bottom: 18px;
+      margin-bottom: 22px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .page-title { font-size: 23px; font-weight: 800; letter-spacing: -0.02em; color: var(--navy-900); }
+    .page-desc { font-size: 13.5px; color: var(--text-sub); max-width: 720px; margin-top: 4px; }
+
+    /* BOTONES CORPORATIVOS */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: 0.15s ease;
+      text-decoration: none;
+      line-height: 1.2;
+    }
+    .btn svg { width: 15px; height: 15px; stroke: currentColor; stroke-width: 1.5; fill: none; }
+    .btn-primary {
+      background: var(--navy-900);
+      color: #FFFFFF;
+      border: 1px solid var(--navy-900);
+    }
+    .btn-primary:hover { background: var(--navy-800); border-color: var(--navy-800); }
+    .btn-secondary {
+      background: transparent;
+      color: var(--navy-900);
+      border: 1px solid var(--border-color);
+    }
+    .btn-secondary:hover { background: var(--bg-card); border-color: var(--text-muted); }
+    .btn-block { width: 100%; }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    /* BANDA EDITORIAL DE MÉTRICAS (DIVISORES FINOS DE 1PX) */
+    .metrics-strip {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      margin-bottom: 22px;
+    }
+    @media (max-width: 900px) { .metrics-strip { grid-template-columns: repeat(2, 1fr); } }
+    .metric-cell {
+      padding: 16px 20px;
+      border-right: 1px solid var(--border-color);
+    }
+    .metric-cell:last-child { border-right: none; }
+    .metric-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .metric-val {
+      font-family: var(--mono);
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--navy-900);
+      margin: 6px 0 2px;
+      letter-spacing: -0.02em;
+    }
+    .metric-sub { font-size: 12px; color: var(--text-sub); font-family: var(--mono); }
+
+    /* PANELES Y LISTAS NUMERADAS EDITORIALES */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      margin-bottom: 20px;
+    }
+    .card-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+    .card-title { font-size: 12.5px; font-weight: 700; color: var(--navy-900); text-transform: uppercase; letter-spacing: 0.04em; }
+    .card-body { padding: 20px; }
+
+    .editorial-list { display: flex; flex-direction: column; }
+    .editorial-row {
+      display: grid;
+      grid-template-columns: 42px 1fr auto;
+      gap: 16px;
+      align-items: center;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .editorial-row:last-child { border-bottom: none; }
+    .editorial-row.active-step { background: rgba(14, 165, 233, 0.04); }
+    .ed-ordinal {
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--sky-500);
+    }
+    .ed-main h4 { font-size: 14px; font-weight: 700; color: var(--navy-900); margin-bottom: 2px; }
+    .ed-main p { font-size: 13px; color: var(--text-sub); }
+
+    /* LAYOUT DE CONSOLA (FORMULARIO IZQUIERDA + SUB-FLUJO DERECHA) */
+    .workspace-split {
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      gap: 22px;
+      align-items: start;
+    }
+    @media (max-width: 1120px) { .workspace-split { grid-template-columns: 1fr; } }
+
+    .field { margin-bottom: 14px; }
+    .field-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text-main);
+      margin-bottom: 6px;
+    }
+    .field-val { font-family: var(--mono); color: var(--sky-500); font-weight: 700; }
+    input[type="range"] { width: 100%; accent-color: var(--navy-900); cursor: pointer; }
+    input[type="number"], input[type="text"], select {
+      width: 100%;
+      padding: 9px 11px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      color: var(--text-main);
+      font-family: var(--mono);
+      font-size: 12.5px;
+    }
+    input:focus, select:focus { outline: none; border-color: var(--sky-500); }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+    /* SUB-NAVEGACIÓN INTERNA POR PESTAÑAS DE 1PX */
+    .subtabs {
+      display: flex;
+      gap: 24px;
+      border-bottom: 1px solid var(--border-color);
+      padding: 0 20px;
+      background: var(--bg-card);
+      border-top-left-radius: 10px;
+      border-top-right-radius: 10px;
+    }
+    .subtab-btn {
+      padding: 13px 0;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text-sub);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .subtab-btn span { font-family: var(--mono); color: var(--sky-500); font-size: 11.5px; }
+    .subtab-btn.active {
+      color: var(--navy-900);
+      border-bottom-color: var(--navy-900);
+      font-weight: 700;
+    }
+    .subpane { display: none; padding: 20px; }
+    .subpane.active { display: block; }
+
+    /* BARRAS DE PROGRESO Y COMPARACIÓN SOBRIAS */
+    .bar-group { margin-bottom: 16px; }
+    .bar-group:last-child { margin-bottom: 0; }
+    .bar-head {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12.5px;
+      margin-bottom: 6px;
+      color: var(--text-main);
+      font-weight: 500;
+    }
+    .bar-track {
+      width: 100%;
+      height: 10px;
+      background: var(--bg-main);
+      border: 1px solid var(--border-color);
+      border-radius: 5px;
+      overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%;
+      background: var(--navy-900);
+      transition: width 0.3s ease;
+    }
+    .bar-fill.accent { background: var(--sky-500); }
+    .bar-fill.muted { background: var(--text-muted); }
+
+    /* SELECTOR DE OPERACIONES DEL CATÁLOGO */
+    .alloc-track {
+      height: 6px;
+      width: 100%;
+      background: var(--bg-main);
+      border-radius: 3px;
+      overflow: hidden;
+      display: flex;
+      gap: 2px;
+      margin: 8px 0 14px;
+    }
+    .alloc-seg { height: 100%; transition: width 0.25s ease; }
+
+    .op-list { border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; margin-bottom: 14px; }
+    .op-row {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border-color);
+      background: var(--bg-card);
+    }
+    .op-row:last-child { border-bottom: none; }
+    .op-row.active { background: var(--bg-main); }
+    .op-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .op-check-label { display: flex; align-items: center; gap: 8px; cursor: pointer; flex: 1; min-width: 0; }
+    .op-check-label input { width: 15px; height: 15px; accent-color: var(--navy-900); cursor: pointer; }
+    .op-title { font-size: 12.5px; font-weight: 600; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .op-controls { display: flex; align-items: center; gap: 6px; }
+    .btn-spec {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      border: 1px solid var(--border-color);
+      background: var(--bg-card);
+      color: var(--text-sub);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .btn-spec.open { background: var(--navy-900); color: #fff; border-color: var(--navy-900); }
+    .op-spec-box {
+      display: none;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border-color);
+      font-size: 12px;
+      color: var(--text-sub);
+    }
+    .op-spec-box.open { display: block; }
+    .spec-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 6px; }
+    .spec-item {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      padding: 5px 8px;
+      border-radius: 6px;
+      font-family: var(--mono);
+      font-size: 10.5px;
+    }
+    .spec-item strong { display: block; color: var(--text-muted); font-size: 9.5px; }
+
+    /* TABLAS DE DATOS LIMPIAS */
+    .table-wrap { width: 100%; overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 12.5px; text-align: left; }
+    th {
+      padding: 10px 14px;
+      background: var(--bg-main);
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      border-bottom: 1px solid var(--border-color);
+    }
+    td {
+      padding: 11px 14px;
+      border-bottom: 1px solid var(--border-color);
+      font-family: var(--mono);
+      color: var(--text-sub);
+      white-space: nowrap;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--bg-main); }
+
+    .alert-banner {
+      display: none;
+      padding: 12px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      margin-bottom: 14px;
+      border: 1px solid var(--border-color);
+      background: var(--bg-main);
+      color: var(--text-main);
+    }
+    .alert-error { border-color: var(--status-err); color: var(--status-err); background: #FFF1F2; }
+    .alert-info { border-color: var(--sky-500); background: rgba(14, 165, 233, 0.06); margin-top: 12px; }
+  </style>
+</head>
+<body>
+
+  <!-- BARRA SUPERIOR CORPORATIVA -->
+  <header class="topbar">
+    <div class="brand-group">
+      <a href="#resumen" class="brand-mark" onclick="navigateFlow('RESUMEN'); return false;">AyniFlux<span>.</span></a>
+      <div class="brand-divider"></div>
+      <div class="brand-project">Farma HPC Architecture · Pasarela Transaccional &amp; Supercómputo</div>
+    </div>
+
+    <div class="topbar-right">
+      <div class="chip mono">
+        <span class="status-dot online" id="master-dot"></span>
+        <span id="master-cpu-pill">Maestro N4020: 0.0%</span>
+      </div>
+      <div class="chip mono">
+        <span class="status-dot online" id="slave-dot"></span>
+        <span id="slave-conn-badge">Esclavo i7: Sincronizado</span>
+      </div>
+      <div class="chip mono">
+        <span class="status-dot active"></span>
+        <span id="badge-modo">Pool PostgreSQL 18</span>
+      </div>
+      <button type="button" id="global-stop-attack-btn" onclick="detenerAtaqueContinuoGlobal()" style="display:none; background:#E11D48; color:#FFFFFF; border:1px solid #E11D48; padding:5px 12px; border-radius:999px; font-family:var(--mono); font-size:11.5px; font-weight:700; cursor:pointer;">
+        [ACTIVO] Detener Ataque WAN (STOP)
+      </button>
+    </div>
+  </header>
+
+  <div class="app-shell">
+    <!-- BARRA LATERAL CON 3 FLUJOS + MONITOR DE HILOS INTEGRADO EN VIVO -->
+    <aside class="sidebar">
+      <div>
+        <div class="nav-section-label">Flujos de Arquitectura</div>
+        <ul class="nav-list">
+          <li>
+            <button type="button" class="nav-item active" id="nav-btn-RESUMEN" onclick="navigateFlow('RESUMEN')">
+              <span class="nav-num">01</span>
+              <span>Resumen &amp; Topología</span>
+            </button>
+          </li>
+          <li>
+            <button type="button" class="nav-item" id="nav-btn-ECOMMERCE" onclick="navigateFlow('ECOMMERCE')">
+              <span class="nav-num">02</span>
+              <span>Gateway Micro-Batching</span>
+            </button>
+          </li>
+          <li>
+            <button type="button" class="nav-item" id="nav-btn-ANALITICA" onclick="navigateFlow('ANALITICA')">
+              <span class="nav-num">03</span>
+              <span>Supercómputo Analítico</span>
+            </button>
+          </li>
+          <li>
+            <button type="button" class="nav-item" id="nav-btn-ATACANTE" onclick="navigateFlow('ATACANTE')">
+              <span class="nav-num">04</span>
+              <span>Tráfico Simulado (WAN)</span>
+            </button>
+          </li>
+        </ul>
+
+        <!-- CONTENEDOR INTEGRADO DE TELEMETRÍA DE NÚCLEOS (/proc/stat) -->
+        <div class="sidebar-telemetry">
+          <div class="tele-header">
+            <span class="tele-title">Telemetría de Nodos</span>
+            <span class="mono" style="font-size:10px; color:var(--sky-500);">/proc/stat</span>
+          </div>
+
+          <!-- Nodo Maestro Lenovo (2 núcleos) -->
+          <div class="tele-subblock">
+            <div class="tele-node-row">
+              <span>01 · Maestro Lenovo N4020</span>
+              <span class="tele-node-pct" id="master-avg-lbl">0.0%</span>
+            </div>
+            <div class="mini-master-grid" id="master-cores-grid"></div>
+          </div>
+
+          <!-- Nodo Esclavo Core i7-11700 (16 hilos) -->
+          <div class="tele-subblock">
+            <div class="tele-node-row">
+              <span>02 · Esclavo i7 (16 Hilos)</span>
+              <span class="tele-node-pct" id="slave-avg-lbl">0.0%</span>
+            </div>
+            <div class="mini-slave-grid" id="ecom-slave-grid"></div>
+            <div class="mono" style="font-size:10px; color:var(--text-muted); margin-top:6px; text-align:right;" id="thread-badge">
+              16 procesadores lógicos
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <span class="kicker">Transparencia por Hitos</span>
+        <strong>Sastrería Tecnológica B2B</strong>
+        <p>Infraestructura verificable sobre código fuente abierto en C++17 (OpenMP / OpenMPI) y PostgreSQL 18 con replicación asíncrona.</p>
+      </div>
+    </aside>
+
+    <!-- ÁREA CENTRAL DE CONTENIDO -->
+    <main class="stage">
+
+      <!-- ========================================================================= -->
+      <!-- FLUJO 01: RESUMEN EJECUTIVO & TOPOLOGÍA                                   -->
+      <!-- ========================================================================= -->
+      <section class="view-section active" id="flow-RESUMEN">
+        <div class="page-header">
+          <div>
+            <span class="kicker">01 · Arquitectura de Referencia</span>
+            <h1 class="page-title">Consola de Orquestación Híbrida &amp; Protección Transaccional</h1>
+            <p class="page-desc">Selecciona un módulo operativo para ejecutar pruebas reales de mitigación de bloqueos I/O en PostgreSQL o procesamiento paralelo multinúcleo mientras observas la reacción de los hilos en la barra lateral.</p>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <span class="chip mono">[PostgreSQL 18]</span>
+            <span class="chip mono">[C++17 OpenMP]</span>
+            <span class="chip mono">[OpenMPI]</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Módulos Operativos Disponibles</span>
+            <span class="mono" style="font-size:12px; color:var(--text-muted);">Navegación desacoplada por dominio</span>
+          </div>
+          <div class="editorial-list">
+            <div class="editorial-row">
+              <div class="ed-ordinal">01</div>
+              <div class="ed-main">
+                <h4>Gateway de Micro-Batching, Read/Write Splitting &amp; Mitigación I/O (WAL)</h4>
+                <p>Compara físicamente N transacciones individuales en disco frente a la agrupación en un único Bulk Commit atómico con sanitización paralela MPI.</p>
+              </div>
+              <button type="button" class="btn btn-primary" onclick="navigateFlow('ECOMMERCE')">
+                Abrir Gateway I/O
+                <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+              </button>
+            </div>
+
+            <div class="editorial-row">
+              <div class="ed-ordinal">02</div>
+              <div class="ed-main">
+                <h4>Motor de Supercómputo Analítico Contable (ORDA, PxT &amp; Catálogo Multi-Kernel)</h4>
+                <p>Ejecuta proyecciones financieras, cálculo de productividad por técnico, series históricas con Cache Blocking L1 (Tile = 2048) y barridos de 1 a 16 hilos.</p>
+              </div>
+              <button type="button" class="btn btn-secondary" onclick="navigateFlow('ANALITICA')">
+                Abrir Motor Analítico
+                <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Protocolo de Conmutación Energética Activo (Green IT)</span>
+            <span class="chip mono">Wake-on-LAN UDP:9</span>
+          </div>
+          <div class="editorial-list">
+            <div class="editorial-row active-step" id="pipe-1">
+              <div class="ed-ordinal">01</div>
+              <div class="ed-main">
+                <h4>Modo Eco Local &amp; Pool de Conexiones (Servidor Maestro Lenovo)</h4>
+                <p>ThreadedConnectionPool + Read/Write Splitting. En demanda baja, el Maestro Lenovo pre-valida lotes localmente consumiendo ~6W sin encender el nodo secundario.</p>
+              </div>
+              <span class="chip mono">~6W IDLE</span>
+            </div>
+            <div class="editorial-row" id="pipe-2">
+              <div class="ed-ordinal">02</div>
+              <div class="ed-main">
+                <h4>Detección de Saturación &amp; Disparo Wake-on-LAN de Emergencia</h4>
+                <p>Ante ráfagas sostenidas de lotes, despacha un Magic Packet hacia la interfaz D8:5E:D3:23:E0:5C para evitar que el pre-procesamiento compita por CPU con PostgreSQL.</p>
+              </div>
+              <span class="chip mono">AUTO-WOL</span>
+            </div>
+            <div class="editorial-row" id="pipe-3">
+              <div class="ed-ordinal">03</div>
+              <div class="ed-main">
+                <h4>Offload Paralelo Total (Esclavo Core i7-11700) + 1 Único Bulk Commit</h4>
+                <p>Los 16 hilos del Esclavo i7 ejecutan la sanitización y estandarización en tiempo O(N/P), entregando una sola transacción consolidada al disco del Maestro.</p>
+              </div>
+              <span class="chip mono">16 HILOS MPI</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- FLUJO 02: GATEWAY DE MICRO-BATCHING, MITIGACIÓN I/O (WAL) & OFFLOADING    -->
+      <!-- ========================================================================= -->
+      <section class="view-section" id="flow-ECOMMERCE">
+        <div class="page-header">
+          <div>
+            <span class="kicker">02 · Pasarela Transaccional de Base de Datos</span>
+            <h1 class="page-title">Gateway de Micro-Batching &amp; Mitigación de Cuellos de Botella I/O</h1>
+            <p class="page-desc">Centraliza autorización SHA-256, sanitización paralela anti-SQLi mediante MPI y consolidación de micro-lotes para erradicar la contención de sincronizaciones WAL en PostgreSQL 18.</p>
+          </div>
+          <button type="button" class="btn btn-secondary" onclick="navigateFlow('ANALITICA')">
+            Ir al Motor Analítico (03)
+            <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+          </button>
+        </div>
+
+        <div class="metrics-strip">
+          <div class="metric-cell">
+            <div class="metric-label"><span>Reducción I/O (WAL)</span><span class="mono">BATCH</span></div>
+            <div class="metric-val" id="ec-kpi-speedup">--</div>
+            <div class="metric-sub" id="ec-kpi-commits">Commits evitados: --</div>
+          </div>
+          <div class="metric-cell">
+            <div class="metric-label"><span>Tiempo Bulk Commit</span><span class="mono">1 SYNC</span></div>
+            <div class="metric-val" id="ec-kpi-bulk-ms">--</div>
+            <div class="metric-sub" id="ec-kpi-trad-ms">Fila x Fila tradicional: -- ms</div>
+          </div>
+          <div class="metric-cell">
+            <div class="metric-label"><span>Nodo Offload Activo</span><span class="mono">GREEN IT</span></div>
+            <div class="metric-val" id="ec-kpi-nodo" style="font-size:16px; margin:10px 0 6px;">Maestro Lenovo (Modo Eco)</div>
+            <div class="metric-sub" id="ec-kpi-sqli">SQLi filtrados fuera de DB: 0</div>
+          </div>
+          <div class="metric-cell">
+            <div class="metric-label"><span>Throughput DB</span><span class="mono">ACID</span></div>
+            <div class="metric-val" id="ec-kpi-tput">-- ops/s</div>
+            <div class="metric-sub" id="ec-kpi-stock">1 solo SELECT ... FOR UPDATE</div>
+          </div>
+        </div>
+
+        <div class="workspace-split">
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Parámetros de Ingesta por Lote</span>
+              <span class="chip mono" id="ec-rafaga-counter">Ráfaga: 0/2</span>
+            </div>
+            <div class="card-body">
+              <div id="ec-error-box" class="alert-banner alert-error"></div>
+
+              <div class="field">
+                <div class="field-label"><span>Política Energética Green IT</span></div>
+                <select id="ec-politica" onchange="cambiarPoliticaGreenIt()">
+                  <option value="AUTO_PROGRESIVO">01 · Auto-Progresivo (Eco ➔ WoL ➔ Offload i7)</option>
+                  <option value="SOLO_ESCLAVO_ACTIVO">02 · Esclavo i7 Activo (100% Offload MPI)</option>
+                  <option value="FORZAR_ECO_MAESTRO">03 · Forzar Solo Maestro Lenovo (Local)</option>
+                </select>
+              </div>
+
+              <div class="field">
+                <div class="field-label">
+                  <span>Tamaño del Micro-Lote (N Ops ➔ 1 Commit)</span>
+                  <span class="field-val" id="ec-lbl-batch">500 ops</span>
+                </div>
+                <input type="range" id="ec-batch" min="50" max="2500" step="50" value="500" oninput="document.getElementById('ec-lbl-batch').textContent = this.value + ' ops'">
+              </div>
+
+              <div class="grid-2">
+                <div class="field">
+                  <div class="field-label"><span>Operación CRUD</span></div>
+                  <select id="ec-op">
+                    <option value="CREATE">CREATE (Compra Lote)</option>
+                    <option value="UPDATE">UPDATE (Reposición)</option>
+                    <option value="DELETE">DELETE (Anulación)</option>
+                    <option value="READ">READ (Pool Réplica)</option>
+                    <option value="SEARCH" selected>SEARCH (Búsqueda Masiva 100k SKUs + MPI)</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <div class="field-label"><span>Producto Objetivo</span></div>
+                  <select id="ec-prod">
+                    <option value="1">#1 Paracetamol 500mg</option>
+                    <option value="2">#2 Amoxicilina 500mg</option>
+                    <option value="3">#3 Losartán 50mg</option>
+                    <option value="4">#4 Atorvastatina 20mg</option>
+                    <option value="5">#5 Omeprazol 20mg</option>
+                    <option value="6">#6 Azitromicina 500mg</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="grid-2">
+                <div class="field">
+                  <div class="field-label"><span>RUC / DNI Cabecera</span></div>
+                  <input type="text" id="ec-doc" value="20556677881">
+                </div>
+                <div class="field">
+                  <div class="field-label"><span>Unidades / Op</span></div>
+                  <input type="number" id="ec-cant" min="1" max="50" value="1">
+                </div>
+              </div>
+
+              <div class="field">
+                <div class="field-label"><span>Token Autorización Gateway (SHA-256)</span></div>
+                <input type="text" id="ec-token" value="FARMA-ECOM-2026-AUTH-KEY">
+              </div>
+
+              <div class="field">
+                <div class="field-label">
+                  <span>Volumen de Sanitización Paralela MPI</span>
+                  <span class="field-val" id="ec-lbl-vol">5,000,000 tokens</span>
+                </div>
+                <input type="range" id="ec-vol" min="1000000" max="25000000" step="1000000" value="5000000" oninput="document.getElementById('ec-lbl-vol').textContent = Number(this.value).toLocaleString('es-PE') + ' tokens'">
+              </div>
+
+              <div style="display:flex; flex-direction:column; gap:8px; margin-top:16px;">
+                <button type="button" class="btn btn-primary btn-block" id="btn-ec-single" onclick="ejecutarCrudEcommerce()">
+                  Procesar Micro-Lote (MPI + 1 Bulk Commit)
+                </button>
+                <button type="button" class="btn btn-secondary btn-block" id="btn-ec-stress" onclick="simularRafagaEstresEcommerce()">
+                  Simular Ráfaga Constante (Saturación ➔ WoL ➔ i7)
+                </button>
+                <button type="button" class="btn btn-secondary btn-block" id="btn-ec-comp" onclick="ejecutarComparativaIoEnVivo()">
+                  Benchmark I/O: Fila x Fila vs Micro-Batch
+                </button>
+                <button type="button" class="btn btn-primary btn-block" id="btn-ec-daemon" style="background:var(--sky-500); border-color:var(--sky-500);" onclick="toggleDaemonTrafico()">
+                  Iniciar Tráfico Continuo de Búsqueda (Paralelo Multi-Web)
+                </button>
+              </div>
+
+              <div id="ec-log-box" class="alert-banner alert-info mono"></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="subtabs">
+              <button type="button" class="subtab-btn active" id="ec-tab-btn-IO" onclick="switchEcomSubtab('IO')">
+                <span>01</span> Evidencia de Mitigación I/O (WAL)
+              </button>
+              <button type="button" class="subtab-btn" id="ec-tab-btn-LOTES" onclick="switchEcomSubtab('LOTES')">
+                <span>02</span> Auditoría de Micro-Lotes
+              </button>
+              <button type="button" class="subtab-btn" id="ec-tab-btn-STOCK" onclick="switchEcomSubtab('STOCK')">
+                <span>03</span> Inventario PostgreSQL (50k SKUs)
+              </button>
+            </div>
+
+            <div class="subpane active" id="ec-pane-IO">
+              <span class="kicker">Benchmark Empírico sobre PostgreSQL 18</span>
+              <h3 style="font-size:16px; font-weight:700; margin-bottom:6px;">Contención OLTP Tradicional (N Commits Físicos) vs. Micro-Batching MPI (1 Bulk Commit)</h3>
+              <p style="font-size:13px; color:var(--text-sub); margin-bottom:20px;">
+                Ejecución 100% real en disco: el modo tradicional ejecuta físicamente N bloqueos FOR UPDATE y N confirmaciones WAL individuales en PostgreSQL, mientras que el Gateway consolida la operación en una sola escritura atómica tras pre-validar en paralelo.
+              </p>
+
+              <div class="bar-group">
+                <div class="bar-head">
+                  <span>01 · Enfoque Tradicional Fila por Fila (N Row Locks + N Sincronizaciones WAL)</span>
+                  <span class="mono" id="bar-io-trad-txt">0.0 ms</span>
+                </div>
+                <div class="bar-track"><div class="bar-fill muted" id="bar-io-trad" style="width:0%;"></div></div>
+              </div>
+
+              <div class="bar-group">
+                <div class="bar-head">
+                  <span>02 · Gateway AyniFlux. (Pre-Validación Paralela MPI + 1 Único Bulk Commit Atómico)</span>
+                  <span class="mono" id="bar-io-bulk-txt" style="color:var(--sky-500); font-weight:700;">0.0 ms</span>
+                </div>
+                <div class="bar-track"><div class="bar-fill accent" id="bar-io-bulk" style="width:0%;"></div></div>
+              </div>
+
+              <div style="margin-top:24px; padding-top:16px; border-top:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                <span style="font-size:12.5px; color:var(--text-sub);">Explora los registros persistidos en PostgreSQL:</span>
+                <div style="display:flex; gap:8px;">
+                  <button type="button" class="btn btn-secondary" style="padding:7px 12px; font-size:12px;" onclick="switchEcomSubtab('LOTES')">Ver Tabla de Auditoría (02)</button>
+                  <button type="button" class="btn btn-secondary" style="padding:7px 12px; font-size:12px;" onclick="switchEcomSubtab('STOCK')">Ver Catálogo Stock (03)</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="subpane" id="ec-pane-LOTES" style="padding:0;">
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>CRUD</th>
+                      <th>Micro-Lote</th>
+                      <th>WAL Evitados</th>
+                      <th>I/O Fila x Fila</th>
+                      <th>I/O Bulk</th>
+                      <th>Mejora I/O</th>
+                      <th>SQLi Bloq</th>
+                      <th>Nodo Offload MPI</th>
+                      <th>Estado Green IT</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tabla-pedidos-ecom"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="subpane" id="ec-pane-STOCK" style="padding:0;">
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Código EAN-13</th>
+                      <th>Producto Farmacéutico</th>
+                      <th>Categoría</th>
+                      <th>Precio Base</th>
+                      <th>Precio c/ IGV</th>
+                      <th>Stock Disponible</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tabla-catalogo-ecom"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================================================================= -->
+      <!-- FLUJO 03: SUPERCÓMPUTO ANALÍTICO CONTABLE (ORDA / PXT / MULTI-KERNEL)     -->
+      <!-- ========================================================================= -->
+      <section class="view-section" id="flow-ANALITICA">
+        <div class="page-header">
+          <div>
+            <span class="kicker">03 · Procesamiento Masivo en Memoria Compartida y Distribuida</span>
+            <h1 class="page-title">Motor C++17 de Supercómputo Analítico (OpenMP SIMD &amp; OpenMPI)</h1>
+            <p class="page-desc">Ejecución paralela con alineación estricta a línea de caché L1 (alignas 64) y reparto proporcional entre múltiples kernels de negocio.</p>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button type="button" class="btn btn-secondary" id="tab-std" onclick="cambiarModoUI(false)">Modo Estándar (ORDA)</button>
+            <button type="button" class="btn btn-primary" id="tab-adv" onclick="cambiarModoUI(true)">Modo Avanzado (Multi-Kernel)</button>
+          </div>
+        </div>
+
+        <div class="metrics-strip">
+          <div class="metric-cell">
+            <div class="metric-label"><span>Speedup Algorítmico (S)</span><span class="mono">T_seq / T_par</span></div>
+            <div class="metric-val" id="kpi-speedup">--</div>
+            <div class="metric-sub">Meta UNMSM: S &ge; 8.00x (16 hilos)</div>
+          </div>
+          <div class="metric-cell">
+            <div class="metric-label"><span>Eficiencia Paralela (E)</span><span class="mono">S / N_hilos</span></div>
+            <div class="metric-val" id="kpi-eficiencia">--</div>
+            <div class="metric-sub">Rango físico: 75.0% &lt; E &le; 100%</div>
+          </div>
+          <div class="metric-cell">
+            <div class="metric-label"><span>Latencia Paralela</span><span class="mono">MPI_Wtime</span></div>
+            <div class="metric-val" id="kpi-tpar">--</div>
+            <div class="metric-sub" id="kpi-tseq">Secuencial (1 hilo): -- ms</div>
+          </div>
+          <div class="metric-cell">
+            <div class="metric-label"><span>Productividad PxT</span><span class="mono">alignas(64)</span></div>
+            <div class="metric-val" id="kpi-pxt">--</div>
+            <div class="metric-sub" id="kpi-cpu-sub">Carga Media Kernel i7: --%</div>
+          </div>
+        </div>
+
+        <div class="workspace-split">
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Configuración del Lote Analítico</span>
+              <span class="chip mono" id="ops-count-lbl">2 activas (50.0% c/u)</span>
+            </div>
+            <div class="card-body">
+              <div id="error-box" class="alert-banner alert-error"></div>
+
+              <div id="advanced-panel">
+                <div class="field-label">
+                  <span>Reparto Proporcional del Volumen (N)</span>
+                  <span class="mono" style="font-size:11.5px; color:var(--text-sub);" id="alloc-records-lbl">10,000,000 regs / kernel</span>
+                </div>
+                <div class="alloc-track" id="prop-bar"></div>
+                <div class="op-list" id="ops-list"></div>
+              </div>
+
+              <div class="field">
+                <div class="field-label">
+                  <span>Volumen Transaccional Total (N)</span>
+                  <span class="field-val" id="lbl-registros">20,000,000</span>
+                </div>
+                <input type="range" id="inp-registros" min="1000000" max="60000000" step="1000000" value="20000000" oninput="syncParams()">
+              </div>
+
+              <div class="field">
+                <div class="field-label">
+                  <span>Hilos de Ejecución OpenMP (N_hilos)</span>
+                  <span class="field-val" id="lbl-hilos">16 Hilos</span>
+                </div>
+                <input type="range" id="inp-hilos" min="1" max="16" step="1" value="16" oninput="syncParams()">
+              </div>
+
+              <div class="grid-2">
+                <div class="field">
+                  <div class="field-label"><span>Técnicos Activos</span><span class="field-val" id="lbl-tecnicos">45</span></div>
+                  <input type="number" id="inp-tecnicos" min="1" max="1000" value="45" oninput="syncParams()">
+                </div>
+                <div class="field">
+                  <div class="field-label"><span>Horas Operativas</span><span class="field-val" id="lbl-horas">360h</span></div>
+                  <input type="number" id="inp-horas" min="1" max="50000" value="360" oninput="syncParams()">
+                </div>
+              </div>
+
+              <div class="field" style="display:flex; justify-content:space-between; align-items:center; padding:10px 12px; border:1px solid var(--border-color); border-radius:8px; background:var(--bg-main);">
+                <span style="font-size:12.5px; font-weight:600;">Orquestación Híbrida OpenMPI (mpirun)</span>
+                <input type="checkbox" id="inp-mpi" style="width:16px; height:16px; accent-color:var(--navy-900);">
+              </div>
+
+              <div style="display:flex; flex-direction:column; gap:8px; margin-top:16px;">
+                <button type="button" class="btn btn-primary btn-block" id="btn-run" onclick="ejecutarOrda()">
+                  Ejecutar Lote Analítico en Esclavo i7
+                </button>
+                <button type="button" class="btn btn-secondary btn-block" id="btn-bench" onclick="ejecutarBarridoHilos()">
+                  Barrido de Escalabilidad (1, 2, 4, 8 y 16 Hilos)
+                </button>
+                <button type="button" class="btn btn-secondary btn-block" id="btn-calib" onclick="calibrarMetricas()">
+                  Determinar Parámetros Óptimos (Benchmark)
+                </button>
+              </div>
+
+              <div id="rec-box" class="alert-banner alert-info mono"></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="subtabs">
+              <button type="button" class="subtab-btn active" id="an-tab-btn-KERNELS" onclick="switchAnaSubtab('KERNELS')">
+                <span>01</span> Desglose por Kernel Paralelizado
+              </button>
+              <button type="button" class="subtab-btn" id="an-tab-btn-CURVA" onclick="switchAnaSubtab('CURVA')">
+                <span>02</span> Curva de Escalabilidad &amp; Tiempos
+              </button>
+              <button type="button" class="subtab-btn" id="an-tab-btn-HIST" onclick="switchAnaSubtab('HIST')">
+                <span>03</span> Historial PostgreSQL (ORDA)
+              </button>
+            </div>
+
+            <div class="subpane active" id="an-pane-KERNELS" style="padding:0;">
+              <div style="padding:14px 20px; border-bottom:1px solid var(--border-color); background:var(--bg-main); display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size:12px; font-weight:600; color:var(--text-sub);">Resultados consolidados mediante MPI_Reduce y OpenMP SIMD</span>
+                <span class="mono" style="font-size:11.5px; color:var(--sky-500);" id="prop-summary-badge">Alineación Caché L1: 64B</span>
+              </div>
+              <div class="editorial-list">
+                <div class="editorial-row">
+                  <div class="ed-ordinal">01</div>
+                  <div class="ed-main">
+                    <h4>ORDA Consolidado (Objetivo Real Diario Ajustado)</h4>
+                    <p>Proyección financiera con IGV (1.18) y factor comercial farmacéutico (1.045).</p>
+                  </div>
+                  <div class="mono" style="font-size:16px; font-weight:700;" id="res-orda">S/ --</div>
+                </div>
+                <div class="editorial-row">
+                  <div class="ed-ordinal">02</div>
+                  <div class="ed-main">
+                    <h4>Productividad Operativa PxT (Ventas + Intenciones / Horas)</h4>
+                    <p id="res-pxt-sub">Intenciones: -- | Horas operativas: --</p>
+                  </div>
+                  <div class="mono" style="font-size:16px; font-weight:700;" id="res-pxt">-- pac/h</div>
+                </div>
+                <div class="editorial-row">
+                  <div class="ed-ordinal">03</div>
+                  <div class="ed-main">
+                    <h4>Sanitizer SQL / JSON Concurrente</h4>
+                    <p>Inspección paralela de tokens maliciosos en tiempo O(N/P).</p>
+                  </div>
+                  <div class="mono" style="font-size:16px; font-weight:700;" id="res-sql">-- bloqueos</div>
+                </div>
+                <div class="editorial-row">
+                  <div class="ed-ordinal">04</div>
+                  <div class="ed-main">
+                    <h4>Métricas Históricas Multianuales (Cache Blocking L1 = 2048)</h4>
+                    <p>Descomposición estacional y media móvil con tasa de fallos L1 &lt; 0.5%.</p>
+                  </div>
+                  <div class="mono" style="font-size:16px; font-weight:700;" id="res-hist">S/ --</div>
+                </div>
+                <div class="editorial-row">
+                  <div class="ed-ordinal">05</div>
+                  <div class="ed-main">
+                    <h4>Analítica Multidimensional Inter-Sucursal (12 Sedes)</h4>
+                    <p>Detección temprana de quiebres de stock y balance de rotación.</p>
+                  </div>
+                  <div class="mono" style="font-size:16px; font-weight:700;" id="res-sedes">-- alertas</div>
+                </div>
+                <div class="editorial-row">
+                  <div class="ed-ordinal">06</div>
+                  <div class="ed-main">
+                    <h4>Motor de Promociones Escalado (SIMD Vector)</h4>
+                    <p>Descuento acumulado por evaluación de árbol condicional vectorizado.</p>
+                  </div>
+                  <div class="mono" style="font-size:16px; font-weight:700;" id="res-promos">S/ --</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="subpane" id="an-pane-CURVA">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <span class="kicker" style="margin:0;">Comparativa Directa de Latencia</span>
+                <span class="mono" style="font-size:11.5px; color:var(--text-muted);" id="mpi-overhead-lbl">MPI_Reduce: -- ms</span>
+              </div>
+
+              <div class="bar-group">
+                <div class="bar-head"><span>01 · Referencia Secuencial (1 Hilo)</span><span class="mono" id="bar-seq-txt">0.0 ms</span></div>
+                <div class="bar-track"><div class="bar-fill muted" id="bar-seq" style="width:0%;"></div></div>
+              </div>
+              <div class="bar-group" style="margin-bottom:28px;">
+                <div class="bar-head"><span>02 · Ejecución Paralela Multinúcleo (Nodo Esclavo i7-11700)</span><span class="mono" id="bar-par-txt" style="color:var(--sky-500); font-weight:700;">0.0 ms</span></div>
+                <div class="bar-track"><div class="bar-fill accent" id="bar-par" style="width:0%;"></div></div>
+              </div>
+
+              <div style="padding-top:20px; border-top:1px solid var(--border-color);">
+                <span class="kicker">Curva Empírica de Escalabilidad (Speedup vs. N_hilos)</span>
+                <div id="benchmark-bars" style="margin-top:12px;">
+                  <p style="font-size:13px; color:var(--text-sub);">Ejecuta un lote o inicia el barrido automático de 1 a 16 hilos para construir la gráfica comparativa.</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="subpane" id="an-pane-HIST" style="padding:0;">
+              <div style="padding:12px 20px; border-bottom:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center;">
+                <span class="mono" style="font-size:11.5px; color:var(--text-muted);">Tabla: metricas_analiticas_orda</span>
+                <button type="button" class="btn btn-secondary" style="padding:5px 10px; font-size:11.5px;" onclick="cargarHistorial()">Refrescar Registros</button>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Motor / Nodo</th>
+                      <th>Mix de Operaciones</th>
+                      <th>MPI</th>
+                      <th>Hilos</th>
+                      <th>Registros (N)</th>
+                      <th>T. Seq</th>
+                      <th>T. Par</th>
+                      <th>Speedup</th>
+                      <th>Eficiencia</th>
+                      <th>ORDA Acumulado</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tabla-historial"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    
+      <!-- ========================================================================= -->
+      <!-- FLUJO 04: CONTROLADOR DE TRÁFICO SIMULADO WAN & TELEMETRÍA RYZEN 5 5500X3D -->
+      <!-- ========================================================================= -->
+      <section class="view-section" id="flow-ATACANTE">
+        <div class="page-header">
+          <div>
+            <span class="kicker">04 · Generación de Carga Distribuida vía Tailscale WAN</span>
+            <h1 class="page-title">Centro de Control de Tráfico Simulado &amp; Nodo Atacante Externo</h1>
+            <p class="page-desc">Parametriza y dispara ráfagas de búsqueda masiva SELECT (100,000 SKUs) y operaciones CRUD desde el nodo remoto DESKTOP-PF7PD6U (100.66.197.8 · AMD Ryzen 5 5500X3D) hacia el clúster principal.</p>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <span class="chip mono" id="atk-conn-pill">Nodo 100.66.197.8: Sincronizando</span>
+            <button type="button" class="btn btn-secondary" onclick="navigateFlow('ANALITICA')">
+              Ir a Supercómputo (03) en Paralelo
+              <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- BANDA DE 4 MÉTRICAS DEL ATAQUE WAN -->
+        <div class="metrics-strip">
+          <div class="metric-cell">
+            <div class="metric-label"><span>Estado del Generador WAN</span><span class="mono" id="atk-kpi-preset">PRESET: HARD</span></div>
+            <div class="metric-val" id="atk-kpi-mode" style="font-size:18px; margin:9px 0 4px;">EN ESPERA</div>
+            <div class="metric-sub" id="atk-kpi-olas">Olas despachadas: 0</div>
+          </div>
+          <div class="metric-cell">
+            <div class="metric-label"><span>Operaciones Despachadas</span><span class="mono">WAN ➔ DB</span></div>
+            <div class="metric-val" id="atk-kpi-ops">0</div>
+            <div class="metric-sub" id="atk-kpi-tput">Throughput: -- ops/s</div>
+          </div>
+          <div class="metric-cell">
+            <div class="metric-label"><span>Saturación Pico Clúster</span><span class="mono">/proc/stat</span></div>
+            <div class="metric-val" id="atk-kpi-cpui7" style="color:var(--sky-500);">0.0%</div>
+            <div class="metric-sub" id="atk-kpi-cpuryz">Pico Ryzen 5500X3D: 0.0%</div>
+          </div>
+          <div class="metric-cell">
+            <div class="metric-label"><span>Mitigación I/O &amp; Seguridad</span><span class="mono">MPI + WAL</span></div>
+            <div class="metric-val" id="atk-kpi-io">--x</div>
+            <div class="metric-sub" id="atk-kpi-sqli">Amenazas SQLi filtradas: 0</div>
+          </div>
+        </div>
+
+        <div class="workspace-split">
+          <!-- COLUMNA IZQUIERDA: CONFIGURADOR DE ATAQUE (MODOS + PRESETS LOW/MID/HARD) -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Parametrización del Ataque WAN</span>
+              <span class="chip mono">100.66.197.8</span>
+            </div>
+            <div class="card-body">
+              <!-- SELECTOR DE MODO: REGULADO VS CONTINUO -->
+              <div class="field">
+                <div class="field-label"><span>Modo de Ejecución del Ataque</span></div>
+                <div class="grid-2">
+                  <button type="button" class="btn btn-primary" id="btn-mode-reg" onclick="setModoAtaqueUI('REGULADO')">
+                    01 · Regulado (Prueba)
+                  </button>
+                  <button type="button" class="btn btn-secondary" id="btn-mode-cont" onclick="setModoAtaqueUI('CONTINUO')">
+                    02 · Continuo (Loop)
+                  </button>
+                </div>
+              </div>
+
+              <!-- PREAJUSTES DE INTENSIDAD: LOW / MID / HARD -->
+              <div class="field" style="margin-top:16px;">
+                <div class="field-label">
+                  <span>Preajustes de Capacidad (Presets)</span>
+                  <span class="field-val" id="lbl-preset-activo">HARD (Saturación 100%)</span>
+                </div>
+                <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:8px;">
+                  <button type="button" class="btn btn-secondary" id="preset-btn-LOW" onclick="aplicarPresetAtaque('LOW')">
+                    LOW · Ligero
+                  </button>
+                  <button type="button" class="btn btn-secondary" id="preset-btn-MID" onclick="aplicarPresetAtaque('MID')">
+                    MID · Medio
+                  </button>
+                  <button type="button" class="btn btn-primary" id="preset-btn-HARD" onclick="aplicarPresetAtaque('HARD')">
+                    HARD · Extremo
+                  </button>
+                </div>
+              </div>
+
+              <div style="border-top:1px solid var(--border-color); margin:16px 0; padding-top:14px;">
+                <div class="field">
+                  <div class="field-label">
+                    <span>Hilos Atacantes Concurrentes (Workers Ryzen)</span>
+                    <span class="field-val" id="lbl-atk-workers">4 Workers</span>
+                  </div>
+                  <input type="range" id="inp-atk-workers" min="1" max="8" step="1" value="4" oninput="syncSlidersAtaque()">
+                </div>
+
+                <div class="field">
+                  <div class="field-label">
+                    <span>Consultas SELECT / CRUD Agrupadas por Ola</span>
+                    <span class="field-val" id="lbl-atk-consultas">1,500 ops/ola</span>
+                  </div>
+                  <input type="range" id="inp-atk-consultas" min="100" max="3000" step="100" value="1500" oninput="syncSlidersAtaque()">
+                </div>
+
+                <div class="field">
+                  <div class="field-label">
+                    <span>Volumen de Scoring &amp; Sanitización MPI por Ola</span>
+                    <span class="field-val" id="lbl-atk-vol">32,000,000 tokens</span>
+                  </div>
+                  <input type="range" id="inp-atk-vol" min="2000000" max="50000000" step="2000000" value="32000000" oninput="syncSlidersAtaque()">
+                </div>
+
+                <div class="field" id="field-num-olas">
+                  <div class="field-label">
+                    <span>Cantidad de Olas de la Prueba Regulada</span>
+                    <span class="field-val" id="lbl-atk-olas">8 Olas</span>
+                  </div>
+                  <input type="range" id="inp-atk-olas" min="2" max="24" step="2" value="8" oninput="syncSlidersAtaque()">
+                </div>
+              </div>
+
+              <!-- BOTONES SEGÚN MODO ELEGIDO -->
+              <div id="controls-regulado">
+                <button type="button" class="btn btn-primary btn-block" id="btn-launch-reg" onclick="ejecutarAtaqueRegulado()">
+                  Ejecutar Prueba Regulada y Obtener Métricas
+                </button>
+              </div>
+
+              <div id="controls-continuo" style="display:none; flex-direction:column; gap:8px;">
+                <button type="button" class="btn btn-primary btn-block" id="btn-start-cont" onclick="controlarAtaqueContinuo(true)">
+                  Iniciar Ataque Continuo Persistente (WAN)
+                </button>
+                <button type="button" class="btn btn-secondary btn-block" id="btn-stop-cont" style="border-color:#E11D48; color:#E11D48; font-weight:700;" onclick="controlarAtaqueContinuo(false)">
+                  DETENER ATAQUE CONTINUO (STOP)
+                </button>
+                <p style="font-size:11.5px; color:var(--text-muted); margin-top:4px;">
+                  El ataque continuo permanece activo en segundo plano aunque cambies a las pestañas 01, 02 o 03 para ejecutar cálculos contables en paralelo.
+                </p>
+              </div>
+
+              <div id="atk-report-box" class="alert-banner alert-info mono"></div>
+            </div>
+          </div>
+
+          <!-- COLUMNA DERECHA: TELEMETRÍA EXCLUSIVA DEL RYZEN 5 5500X3D + BITÁCORA EN VIVO -->
+          <div>
+            <!-- TELEMETRÍA EXCLUSIVA DE LA PC ATACANTE (SOLO EN PESTAÑA 04) -->
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <span class="kicker" style="margin:0;">Telemetría Exclusiva del Nodo Atacante</span>
+                  <span class="card-title" id="ryzen-model-title">DESKTOP-PF7PD6U (100.66.197.8) · AMD Ryzen 5 5500X3D (12 Hilos Lógicos)</span>
+                </div>
+                <span class="chip mono" id="ryzen-avg-badge">Carga Media: 0.0%</span>
+              </div>
+              <div class="card-body">
+                <div style="display:grid; grid-template-columns:repeat(6, 1fr); gap:8px;" id="ryzen-cores-grid"></div>
+              </div>
+            </div>
+
+            <!-- BITÁCORA DE OLAS EN TIEMPO REAL -->
+            <div class="card">
+              <div class="card-header">
+                <span class="card-title">Bitácora de Ráfagas WAN en Tiempo Real (100.66.197.8 ➔ 100.74.10.0 ➔ Esclavo i7)</span>
+                <span class="mono" style="font-size:11.5px; color:var(--sky-500);" id="atk-live-rtt">RTT Medio: -- ms</span>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Pedido</th>
+                      <th>Worker</th>
+                      <th>Operación / Filtro</th>
+                      <th>Consultas</th>
+                      <th>Mejora I/O</th>
+                      <th>CPU i7</th>
+                      <th>SQLi Bloq</th>
+                      <th>Nodo Destino</th>
+                      <th>RTT WAN</th>
+                      <th>Hora</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tabla-olas-atacante">
+                    <tr><td colspan="10" style="text-align:center; color:var(--text-muted);">Lanza una prueba regulada o activa el ataque continuo para ver el flujo de paquetes WAN.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+<script>
+  const CATALOGO_OPERACIONES = [
+    { id: 'ORDA', ord: '01', nombre: 'Cálculo ORDA Ajustado', complejidad: 'Media', color: '#0F172A', checked: true, explicacion: 'Proyección financiera transaccional aplicando IGV (1.18) y factor comercial (1.045).', algoritmo: 'Proyección FPU', paradigma: 'OpenMP + SIMD', memoria: 'alignas(64)' },
+    { id: 'PXT', ord: '02', nombre: 'Productividad PxT por Técnico', complejidad: 'Baja', color: '#0EA5E9', checked: true, explicacion: 'PxT = (Ventas + Intenciones) / Horas Trabajadas.', algoritmo: 'Ratio Productividad', paradigma: 'OpenMP + MPI_Reduce', memoria: 'MetricaPxTSede (64B)' },
+    { id: 'SANITIZER', ord: '03', nombre: 'Sanitización SQL / JSON (MPI)', complejidad: 'Alta', color: '#334155', checked: false, explicacion: 'Inspección concurrente O(N/P) contra vectores de inyección SQL.', algoritmo: 'Token Escape SQL', paradigma: 'OpenMPI + OpenMP', memoria: 'Buffer Binario L1' },
+    { id: 'HISTORICO', ord: '04', nombre: 'Métricas Históricas Multianuales', complejidad: 'Alta', color: '#0284C7', checked: false, explicacion: 'Descomposición estacional con bloques de 2048 elementos en Caché L1.', algoritmo: 'Media Móvil L1', paradigma: 'Loop Tiling', memoria: 'L1_TILE_SIZE = 2048' },
+    { id: 'SEDES', ord: '05', nombre: 'Analítica Inter-Sucursal (Sedes)', complejidad: 'Muy Alta', color: '#475569', checked: false, explicacion: 'Comparativa entre 12 sucursales midiendo rotación y quiebres de stock.', algoritmo: 'Balance Stock', paradigma: 'MPI + OpenMP', memoria: 'Partición por Sede' },
+    { id: 'PROMOS', ord: '06', nombre: 'Motor de Promociones Escalado', complejidad: 'Crítica', color: '#0369A1', checked: false, explicacion: 'Evaluación intensiva de descuentos cruzados con instrucciones SIMD.', algoritmo: 'Árbol Vectorizado', paradigma: 'OpenMP SIMD', memoria: 'Registros AVX2' }
+  ];
+
+  const benchResults = {};
+  let modoAvanzado = true;
+
+  function navigateFlow(flowKey) {
+    ['RESUMEN', 'ECOMMERCE', 'ANALITICA', 'ATACANTE'].forEach(k => {
+      const sec = document.getElementById(`flow-${k}`);
+      const btn = document.getElementById(`nav-btn-${k}`);
+      if (sec) sec.className = 'view-section' + (k === flowKey ? ' active' : '');
+      if (btn) btn.className = 'nav-item' + (k === flowKey ? ' active' : '');
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function switchEcomSubtab(tabKey) {
+    ['IO', 'LOTES', 'STOCK'].forEach(k => {
+      document.getElementById(`ec-pane-${k}`).className = 'subpane' + (k === tabKey ? ' active' : '');
+      document.getElementById(`ec-tab-btn-${k}`).className = 'subtab-btn' + (k === tabKey ? ' active' : '');
+    });
+  }
+
+  function switchAnaSubtab(tabKey) {
+    ['KERNELS', 'CURVA', 'HIST'].forEach(k => {
+      document.getElementById(`an-pane-${k}`).className = 'subpane' + (k === tabKey ? ' active' : '');
+      document.getElementById(`an-tab-btn-${k}`).className = 'subtab-btn' + (k === tabKey ? ' active' : '');
+    });
+  }
+
+  function initGrids() {
+    const mGrid = document.getElementById('master-cores-grid');
+    mGrid.innerHTML = '';
+    for (let i = 0; i < 2; i++) {
+      mGrid.innerHTML += `
+        <div class="mini-core" id="m-core-box-${i}">
+          <div class="mini-core-top"><span class="mini-core-id">C0${i}</span><span class="mini-core-val" id="m-core-val-${i}">0%</span></div>
+          <div class="mini-bar-track"><div class="mini-bar-fill" id="m-core-bar-${i}"></div></div>
+        </div>
+      `;
+    }
+    const g = document.getElementById('ecom-slave-grid');
+    g.innerHTML = '';
+    for (let i = 0; i < 16; i++) {
+      const idStr = String(i).padStart(2, '0');
+      g.innerHTML += `
+        <div class="mini-core" id="ecom-slave-grid-box-${i}">
+          <div class="mini-core-top"><span class="mini-core-id">T${idStr}</span><span class="mini-core-val" id="ecom-slave-grid-val-${i}">0%</span></div>
+          <div class="mini-bar-track"><div class="mini-bar-fill" id="ecom-slave-grid-bar-${i}"></div></div>
+        </div>
+      `;
+    }
+  }
+
+  function pintarBarrasNucleos(prefix, coresPct) {
+    if (!Array.isArray(coresPct)) return;
+    coresPct.forEach((pct, idx) => {
+      const valEl = document.getElementById(`${prefix}-val-${idx}`);
+      const barEl = document.getElementById(`${prefix}-bar-${idx}`);
+      if (valEl && barEl) {
+        valEl.textContent = Math.round(pct) + '%';
+        barEl.style.width = Math.min(100, pct) + '%';
+        barEl.style.background = pct >= 65 ? 'var(--navy-900)' : 'var(--sky-500)';
+      }
+    });
+  }
+
+  function pintarMasterNucleos(coresPct, avgPct) {
+    if (!Array.isArray(coresPct)) return;
+    coresPct.forEach((pct, idx) => {
+      const valEl = document.getElementById(`m-core-val-${idx}`);
+      const barEl = document.getElementById(`m-core-bar-${idx}`);
+      if (valEl && barEl) {
+        valEl.textContent = Math.round(pct) + '%';
+        barEl.style.width = Math.min(100, pct) + '%';
+        barEl.style.background = pct >= 60 ? 'var(--navy-900)' : 'var(--sky-500)';
+      }
+    });
+    document.getElementById('master-avg-lbl').textContent = `${Number(avgPct || 0).toFixed(1)}%`;
+    document.getElementById('master-cpu-pill').textContent = `Maestro N4020: ${Number(avgPct || 0).toFixed(1)}%`;
+  }
+
+  async function consultarCpuReal() {
+    try {
+      const res = await fetch('/infraestructura/cpu-real');
+      const data = await res.json();
+      pintarMasterNucleos(data.master_cores_pct, data.master_avg_pct);
+      const badge = document.getElementById('slave-conn-badge');
+      const sDot = document.getElementById('slave-dot');
+      if (data.online) {
+        badge.textContent = `${data.nodo} · ${data.num_cores} Hilos`;
+        if (sDot) sDot.className = 'status-dot online';
+        pintarBarrasNucleos('ecom-slave-grid', data.cores_pct);
+        document.getElementById('slave-avg-lbl').textContent = `${Number(data.avg_pct).toFixed(1)}%`;
+        document.getElementById('thread-badge').textContent = `Esclavo i7 activo · Media: ${Number(data.avg_pct).toFixed(1)}%`;
+      } else {
+        badge.textContent = 'Esclavo i7: En Reposo (Modo Eco)';
+        if (sDot) sDot.className = 'status-dot active';
+        pintarBarrasNucleos('ecom-slave-grid', data.cores_pct || []);
+        document.getElementById('slave-avg-lbl').textContent = '0.0%';
+        document.getElementById('thread-badge').textContent = 'En reposo Green IT (Modo Eco)';
+      }
+    } catch (e) {}
+  }
+
+  function actualizarPipelineVisual(estadoGreen, wolDisparado) {
+    const p1 = document.getElementById('pipe-1');
+    const p2 = document.getElementById('pipe-2');
+    const p3 = document.getElementById('pipe-3');
+    p1.className = 'editorial-row';
+    p2.className = 'editorial-row';
+    p3.className = 'editorial-row';
+
+    if (wolDisparado) {
+      p2.className = 'editorial-row active-step';
+      p3.className = 'editorial-row active-step';
+    } else if (String(estadoGreen).includes('ESCLAVO')) {
+      p3.className = 'editorial-row active-step';
+    } else {
+      p1.className = 'editorial-row active-step';
+    }
+  }
+
+  function pintarBarrasIoWal(tradMs, bulkMs, lote, commitsEvitados) {
+    const maxIo = Math.max(tradMs, bulkMs, 1);
+    document.getElementById('bar-io-trad').style.width = ((tradMs / maxIo) * 100).toFixed(1) + '%';
+    document.getElementById('bar-io-bulk').style.width = Math.max(2.5, (bulkMs / maxIo) * 100).toFixed(1) + '%';
+    document.getElementById('bar-io-trad-txt').textContent = `${tradMs.toFixed(1)} ms (${lote} WAL Commits)`;
+    document.getElementById('bar-io-bulk-txt').textContent = `${bulkMs.toFixed(2)} ms (1 Bulk Commit · ${commitsEvitados} evitados)`;
+  }
+
+  async function cambiarPoliticaGreenIt() {
+    const modo = document.getElementById('ec-politica').value;
+    const res = await fetch('/ecommerce/green-it/modo', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({modo_politica: modo})
+    });
+    const st = await res.json();
+    document.getElementById('ec-rafaga-counter').textContent = `Ráfaga: ${st.rafagas_alta_carga_consecutivas}/${st.umbral_emergencia_rafagas}`;
+    document.getElementById('ec-kpi-nodo').textContent = st.ultimo_nodo_usado;
+    actualizarPipelineVisual(st.estado_actual, false);
+  }
+
+  async function cargarEstadoEcommerce() {
+    try {
+      const res = await fetch('/ecommerce/estado');
+      const data = await res.json();
+      if (data.green_it) {
+        document.getElementById('ec-rafaga-counter').textContent =
+          `Ráfaga: ${data.green_it.rafagas_alta_carga_consecutivas}/${data.green_it.umbral_emergencia_rafagas}`;
+      }
+      if (data.catalogo) {
+        document.getElementById('tabla-catalogo-ecom').innerHTML = data.catalogo.map(p => {
+          const pBase = Number(p.precio_base);
+          const pIgv = (pBase * 1.18).toFixed(2);
+          return `
+            <tr>
+              <td>#${p.id_producto}</td>
+              <td>${p.codigo_barras}</td>
+              <td style="color:var(--navy-900); font-weight:600;">${p.nombre}</td>
+              <td><span class="chip">${p.categoria}</span></td>
+              <td>S/ ${pBase.toFixed(2)}</td>
+              <td>S/ ${pIgv}</td>
+              <td style="color:var(--navy-900); font-weight:700;">${Number(p.stock_actual).toLocaleString('es-PE')} und</td>
+            </tr>
+          `;
+        }).join('');
+      }
+      if (data.pedidos_recientes) {
+        document.getElementById('tabla-pedidos-ecom').innerHTML = data.pedidos_recientes.map(r => `
+          <tr>
+            <td>#${r.id_pedido}</td>
+            <td><span class="chip">${r.operacion_crud}</span></td>
+            <td style="color:var(--navy-900); font-weight:600;">${r.tamano_micro_lote || 250} ops</td>
+            <td>${r.commits_wal_ahorrados || 249} syncs</td>
+            <td>${Number(r.tiempo_io_tradicional_ms || 0).toFixed(1)} ms</td>
+            <td style="color:var(--sky-500); font-weight:700;">${Number(r.tiempo_bulk_commit_ms || 0).toFixed(2)} ms</td>
+            <td style="color:var(--navy-900); font-weight:700;">${Number(r.factor_reduccion_io || 1).toFixed(1)}x menos I/O</td>
+            <td>${r.amenazas_sql_neutralizadas}</td>
+            <td style="color:var(--navy-900); font-weight:600;">${r.nodo_ejecutor}</td>
+            <td>${r.estado_green_it}</td>
+          </tr>
+        `).join('');
+      }
+    } catch (e) {}
+  }
+
+  async function ejecutarCrudEcommerce(customPayload = null) {
+    const btn = document.getElementById('btn-ec-single');
+    const errBox = document.getElementById('ec-error-box');
+    const logBox = document.getElementById('ec-log-box');
+    errBox.style.display = 'none';
+    btn.disabled = true;
+
+    const payload = customPayload || {
+      token_autorizacion: document.getElementById('ec-token').value,
+      operacion_crud: document.getElementById('ec-op').value,
+      id_producto: parseInt(document.getElementById('ec-prod').value, 10),
+      documento_cliente: document.getElementById('ec-doc').value,
+      cantidad_por_op: parseInt(document.getElementById('ec-cant').value, 10),
+      tamano_micro_lote: parseInt(document.getElementById('ec-batch').value, 10),
+      volumen_lote_mpi: parseInt(document.getElementById('ec-vol').value, 10),
+      usar_mpi: true,
+      payload_filtro_raw: "MICRO_BATCH_INGESTION_PIPELINE"
+    };
+
+    try {
+      const opMode = payload.operacion_crud;
+      const endpointUrl = (opMode === 'SEARCH') ? '/ecommerce/busqueda-masiva' : '/ecommerce/crud';
+      const bodyObj = (opMode === 'SEARCH') ? {
+        token_autorizacion: payload.token_autorizacion,
+        nodo_origen: 'WEB-GATEWAY-CLIENT',
+        termino_busqueda: 'PARACETAMOL',
+        categoria: 'ANALGESICOS',
+        precio_min: 2.0,
+        precio_max: 180.0,
+        stock_minimo: 30,
+        consultas_agrupadas: payload.tamano_micro_lote,
+        volumen_scoring_mpi: Math.max(12000000, payload.volumen_lote_mpi),
+        usar_mpi: true
+      } : payload;
+      const res = await fetch(endpointUrl, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(typeof bodyObj !== 'undefined' ? bodyObj : payload)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Error en Gateway Micro-Batching');
+
+      const io = data.mitigacion_cuello_botella_io;
+      const orq = data.orquestacion_green_it;
+      const hpc = data.hpc_mpi_metrics;
+
+      document.getElementById('ec-kpi-speedup').textContent = `${io.factor_reduccion_io_wal}x menos I/O`;
+      document.getElementById('ec-kpi-commits').textContent = `Commits WAL evitados: ${io.commits_tradicionales_evitados.toLocaleString('es-PE')}`;
+      document.getElementById('ec-kpi-bulk-ms').textContent = `${io.tiempo_io_bulk_commit_ms} ms`;
+      document.getElementById('ec-kpi-trad-ms').textContent = `Fila x Fila (${io.tamano_micro_lote} Commits): ${io.tiempo_io_fila_por_fila_ms} ms`;
+      document.getElementById('ec-kpi-nodo').textContent = orq.nodo_ejecutor;
+      document.getElementById('ec-kpi-sqli').textContent = `SQLi filtrados: ${data.autorizacion.amenazas_sql_bloqueadas.toLocaleString('es-PE')} · Speedup MPI: ${Number(hpc.speedup).toFixed(2)}x`;
+      document.getElementById('ec-kpi-tput').textContent = `${io.throughput_db_ops_sec.toLocaleString('es-PE')} ops/s`;
+      document.getElementById('ec-kpi-stock').textContent = `${data.consistencia_db.accion}`;
+      document.getElementById('ec-rafaga-counter').textContent = `Ráfaga: ${orq.rafagas_consecutivas}/2`;
+
+      pintarBarrasIoWal(io.tiempo_io_fila_por_fila_ms, io.tiempo_io_bulk_commit_ms, io.tamano_micro_lote, io.commits_tradicionales_evitados);
+
+      if (Array.isArray(hpc.master_cores_real_pct) && hpc.master_cores_real_pct.length > 0) {
+        pintarMasterNucleos(hpc.master_cores_real_pct, hpc.master_avg_real_pct);
+      }
+      if (Array.isArray(hpc.cpu_cores_real_pct) && hpc.cpu_cores_real_pct.length > 0) {
+        pintarBarrasNucleos('ecom-slave-grid', hpc.cpu_cores_real_pct);
+        document.getElementById('slave-avg-lbl').textContent = `${Number(hpc.cpu_avg_real_pct || 0).toFixed(1)}%`;
+      }
+
+      actualizarPipelineVisual(orq.estado_green_it, orq.wol_emergencia_disparado);
+
+      if (orq.wol_emergencia_disparado) {
+        logBox.innerHTML = `<strong>[CONMUTACIÓN GREEN IT — WAKE-ON-LAN DISPARADO]:</strong> Saturación detectada. Magic Packet enviado a D8:5E:D3:23:E0:5C. Pre-procesamiento MPI transferido al Esclavo i7-11700.`;
+        logBox.style.display = 'block';
+      } else {
+        logBox.innerHTML = `<strong>[MICRO-LOTE #${data.id_pedido} OK]:</strong> ${io.tamano_micro_lote} operaciones agrupadas en 1 Bulk Commit (${io.tiempo_io_bulk_commit_ms} ms) frente a ${io.tiempo_io_fila_por_fila_ms} ms tradicional.`;
+        logBox.style.display = 'block';
+      }
+
+      await cargarEstadoEcommerce();
+    } catch (err) {
+      errBox.textContent = err.message;
+      errBox.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function simularRafagaEstresEcommerce() {
+    const btn = document.getElementById('btn-ec-stress');
+    btn.disabled = true;
+
+    document.getElementById('ec-politica').value = 'AUTO_PROGRESIVO';
+    await cambiarPoliticaGreenIt();
+    switchEcomSubtab('LOTES');
+
+    const olas = [
+      { op: 'CREATE', prod: 1, batch: 400, doc: '20556677881' },
+      { op: 'CREATE', prod: 2, batch: 600, doc: '20100123456' },
+      { op: 'CREATE', prod: 3, batch: 800, doc: '74859612' },
+      { op: 'UPDATE', prod: 1, batch: 1000, doc: '20601122334' },
+      { op: 'CREATE', prod: 5, batch: 1200, doc: '45123698' }
+    ];
+
+    for (let i = 0; i < olas.length; i++) {
+      btn.textContent = `Procesando Ráfaga (${i + 1}/${olas.length})...`;
+      await ejecutarCrudEcommerce({
+        token_autorizacion: document.getElementById('ec-token').value,
+        operacion_crud: olas[i].op,
+        id_producto: olas[i].prod,
+        documento_cliente: olas[i].doc,
+        cantidad_por_op: 1,
+        tamano_micro_lote: olas[i].batch,
+        volumen_lote_mpi: parseInt(document.getElementById('ec-vol').value, 10),
+        usar_mpi: true,
+        payload_filtro_raw: "RAFAGA_MICRO_BATCH_CONCURRENTE"
+      });
+    }
+    btn.disabled = false;
+    btn.textContent = 'Simular Ráfaga Constante (Saturación ➔ WoL ➔ i7)';
+  }
+
+  async function ejecutarComparativaIoEnVivo() {
+    const btn = document.getElementById('btn-ec-comp');
+    const logBox = document.getElementById('ec-log-box');
+    const lote = parseInt(document.getElementById('ec-batch').value, 10);
+    btn.disabled = true;
+    btn.textContent = `Midiendo ${lote} Commits Reales vs 1 Bulk Commit...`;
+    switchEcomSubtab('IO');
+
+    try {
+      const res = await fetch(`/ecommerce/comparar-io?tamano_lote=${lote}`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Error en comparativa I/O');
+
+      const t = data.tradicional_fila_por_fila;
+      const g = data.gateway_microbatch_mpi;
+
+      pintarBarrasIoWal(t.tiempo_io_postgresql_ms, g.tiempo_io_postgresql_ms, lote, g.commits_evitados);
+      document.getElementById('ec-kpi-speedup').textContent = `${data.factor_reduccion_cuello_botella_io}x menos I/O`;
+      document.getElementById('ec-kpi-commits').textContent = `Commits WAL evitados: ${g.commits_evitados}`;
+      document.getElementById('ec-kpi-bulk-ms').textContent = `${g.tiempo_io_postgresql_ms} ms`;
+      document.getElementById('ec-kpi-trad-ms').textContent = `Fila x Fila (${t.commits_en_disco_wal} Commits): ${t.tiempo_io_postgresql_ms} ms`;
+      document.getElementById('ec-kpi-tput').textContent = `${g.throughput_ops_sec.toLocaleString('es-PE')} ops/s`;
+
+      logBox.innerHTML = `
+        <strong>[BENCHMARK I/O REAL COMPLETADO]:</strong><br>
+        01 · Tradicional (${t.commits_en_disco_wal} Commits físicos): ${t.tiempo_io_postgresql_ms} ms (${t.throughput_ops_sec} ops/s).<br>
+        02 · Micro-Batching MPI (1 Commit): ${g.tiempo_io_postgresql_ms} ms (${g.throughput_ops_sec.toLocaleString('es-PE')} ops/s · ${data.factor_reduccion_cuello_botella_io}x menos contención).
+      `;
+      logBox.style.display = 'block';
+      await cargarEstadoEcommerce();
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Benchmark I/O: Fila x Fila vs Micro-Batch';
+    }
+  }
+
+  function renderCatalogoOperaciones() {
+    const container = document.getElementById('ops-list');
+    container.innerHTML = '';
+    CATALOGO_OPERACIONES.forEach(op => {
+      const row = document.createElement('div');
+      row.className = 'op-row' + (op.checked ? ' active' : '');
+      row.id = `op-card-${op.id}`;
+      row.innerHTML = `
+        <div class="op-top">
+          <label class="op-check-label">
+            <input type="checkbox" id="chk-${op.id}" ${op.checked ? 'checked' : ''} onchange="onToggleCheckbox('${op.id}')">
+            <span class="mono" style="font-size:11.5px; font-weight:700; color:var(--sky-500);">${op.ord}</span>
+            <span class="op-title">${op.nombre}</span>
+          </label>
+          <div class="op-controls">
+            <span class="chip mono" style="padding:2px 8px; font-size:10.5px;">${op.complejidad}</span>
+            <span class="mono" style="font-size:11.5px; font-weight:700; min-width:44px; text-align:right;" id="share-${op.id}">0.0%</span>
+            <button type="button" class="btn-spec" id="btn-spec-${op.id}" onclick="toggleSpec('${op.id}', event)">i</button>
+          </div>
+        </div>
+        <div class="op-spec-box" id="drawer-${op.id}">
+          <div>${op.explicacion}</div>
+          <div class="spec-grid">
+            <div class="spec-item"><strong>ALGORITMO</strong>${op.algoritmo}</div>
+            <div class="spec-item"><strong>PARADIGMA HPC</strong>${op.paradigma}</div>
+            <div class="spec-item"><strong>MEMORIA</strong>${op.memoria}</div>
+          </div>
+        </div>
+      `;
+      container.appendChild(row);
+    });
+    syncProporciones();
+  }
+
+  function onToggleCheckbox(opId) {
+    const chk = document.getElementById(`chk-${opId}`);
+    const item = CATALOGO_OPERACIONES.find(o => o.id === opId);
+    if (!item || !chk) return;
+    item.checked = chk.checked;
+    if (CATALOGO_OPERACIONES.filter(o => o.checked).length === 0) {
+      item.checked = true;
+      chk.checked = true;
+    }
+    syncProporciones();
+  }
+
+  function toggleSpec(opId, evt) {
+    evt.stopPropagation();
+    document.getElementById(`drawer-${opId}`).classList.toggle('open');
+    document.getElementById(`btn-spec-${opId}`).classList.toggle('open');
+  }
+
+  function cambiarModoUI(esAvanzado) {
+    modoAvanzado = esAvanzado;
+    document.getElementById('tab-std').className = 'btn ' + (!esAvanzado ? 'btn-primary' : 'btn-secondary');
+    document.getElementById('tab-adv').className = 'btn ' + (esAvanzado ? 'btn-primary' : 'btn-secondary');
+    document.getElementById('advanced-panel').style.display = esAvanzado ? 'block' : 'none';
+    syncProporciones();
+  }
+
+  function obtenerOperacionesSeleccionadas() {
+    if (!modoAvanzado) return ['ORDA'];
+    const activas = CATALOGO_OPERACIONES.filter(o => o.checked).map(o => o.id);
+    return activas.length > 0 ? activas : ['ORDA'];
+  }
+
+  function syncProporciones() {
+    const totalReg = parseInt(document.getElementById('inp-registros').value, 10);
+    const activas = modoAvanzado ? CATALOGO_OPERACIONES.filter(o => o.checked) : [CATALOGO_OPERACIONES[0]];
+    const count = Math.max(1, activas.length);
+    const pct = 100 / count;
+    const regPorOp = Math.floor(totalReg / count);
+    const propBar = document.getElementById('prop-bar');
+    propBar.innerHTML = '';
+
+    CATALOGO_OPERACIONES.forEach(op => {
+      const card = document.getElementById(`op-card-${op.id}`);
+      const shareEl = document.getElementById(`share-${op.id}`);
+      if (card && shareEl) {
+        card.className = 'op-row' + (op.checked ? ' active' : '');
+        if (op.checked) {
+          shareEl.textContent = `${pct.toFixed(1)}%`;
+          const seg = document.createElement('div');
+          seg.className = 'alloc-seg';
+          seg.style.width = `${pct}%`;
+          seg.style.background = op.color;
+          propBar.appendChild(seg);
+        } else {
+          shareEl.textContent = '0.0%';
+        }
+      }
+    });
+    document.getElementById('ops-count-lbl').textContent = `${count} activa(s) (${pct.toFixed(1)}% c/u)`;
+    document.getElementById('alloc-records-lbl').textContent = `${regPorOp.toLocaleString('es-PE')} regs / kernel`;
+  }
+
+  function syncParams() {
+    const reg = parseInt(document.getElementById('inp-registros').value, 10);
+    const hilos = parseInt(document.getElementById('inp-hilos').value, 10);
+    const tec = parseInt(document.getElementById('inp-tecnicos').value, 10);
+    const hrs = parseFloat(document.getElementById('inp-horas').value || '360');
+    document.getElementById('lbl-registros').textContent = reg.toLocaleString('es-PE');
+    document.getElementById('lbl-hilos').textContent = hilos + (hilos === 1 ? ' Hilo' : ' Hilos');
+    document.getElementById('lbl-tecnicos').textContent = tec;
+    document.getElementById('lbl-horas').textContent = hrs + 'h';
+    syncProporciones();
+  }
+
+  function actualizarKPIs(out) {
+    const effPct = Math.min(100.0, out.eficiencia * 100);
+    document.getElementById('kpi-speedup').textContent = out.speedup.toFixed(4) + 'x';
+    document.getElementById('kpi-eficiencia').textContent = effPct.toFixed(2) + '%';
+    document.getElementById('kpi-tpar').textContent = out.tiempo_paralelo_ms.toFixed(1) + ' ms';
+    document.getElementById('kpi-tseq').textContent = `Secuencial (1 hilo): ${out.tiempo_secuencial_ms.toFixed(1)} ms`;
+    document.getElementById('kpi-pxt').textContent = Number(out.pxt_promedio).toLocaleString('es-PE', {maximumFractionDigits: 1}) + ' ops/h';
+    document.getElementById('kpi-cpu-sub').textContent = `Carga Media Kernel i7: ${out.cpu_avg_real_pct || 0}%`;
+    document.getElementById('badge-modo').textContent = `${out.modo_ejecucion} · [${out.operaciones_ejecutadas}]`;
+
+    document.getElementById('res-orda').textContent = 'S/ ' + Number(out.orda_acumulado).toLocaleString('es-PE', {maximumFractionDigits: 0});
+    document.getElementById('res-pxt').textContent = Number(out.pxt_promedio).toFixed(2) + ' pac/h';
+    document.getElementById('res-pxt-sub').textContent = `Intenciones: ${Number(out.total_intenciones || 0).toLocaleString('es-PE')} | Horas: ${out.horas_trabajadas || 360}h`;
+    document.getElementById('res-sql').textContent = Number(out.sql_amenazas_bloqueadas || 0).toLocaleString('es-PE') + ' bloqueos';
+    document.getElementById('res-hist').textContent = 'S/ ' + Number(out.media_movil_anual || 0).toLocaleString('es-PE', {maximumFractionDigits: 0});
+    document.getElementById('res-sedes').textContent = Number(out.quiebres_stock_sedes || 0).toLocaleString('es-PE') + ' alertas';
+    document.getElementById('res-promos').textContent = 'S/ ' + Number(out.ahorro_promociones || 0).toLocaleString('es-PE', {maximumFractionDigits: 0});
+
+    if (Array.isArray(out.cpu_cores_real_pct) && out.cpu_cores_real_pct.length > 0) {
+      pintarBarrasNucleos('ecom-slave-grid', out.cpu_cores_real_pct);
+      document.getElementById('slave-avg-lbl').textContent = `${Number(out.cpu_avg_real_pct || 0).toFixed(1)}%`;
+    }
+
+    const maxT = Math.max(out.tiempo_secuencial_ms, out.tiempo_paralelo_ms, 1);
+    document.getElementById('bar-seq').style.width = ((out.tiempo_secuencial_ms / maxT) * 100).toFixed(1) + '%';
+    document.getElementById('bar-par').style.width = ((out.tiempo_paralelo_ms / maxT) * 100).toFixed(1) + '%';
+    document.getElementById('bar-seq-txt').textContent = out.tiempo_secuencial_ms.toFixed(1) + ' ms';
+    document.getElementById('bar-par-txt').textContent = out.tiempo_paralelo_ms.toFixed(1) + ' ms';
+
+    benchResults[out.hilos_openmp] = out;
+    dibujarCurvaBenchmark();
+  }
+
+  function dibujarCurvaBenchmark() {
+    const container = document.getElementById('benchmark-bars');
+    const keys = Object.keys(benchResults).map(Number).sort((a, b) => a - b);
+    if (keys.length === 0) return;
+    const maxSpeedup = Math.max(...keys.map(k => benchResults[k].speedup), 12);
+    container.innerHTML = keys.map(h => {
+      const r = benchResults[h];
+      const pct = Math.min(100, (r.speedup / maxSpeedup) * 100).toFixed(1);
+      const eff = Math.min(100, r.eficiencia * 100).toFixed(1);
+      return `
+        <div class="bar-group">
+          <div class="bar-head mono">
+            <span>${String(h).padStart(2, '0')} Hilos (${r.tiempo_paralelo_ms.toFixed(1)} ms)</span>
+            <span>S: <strong style="color:var(--sky-500)">${r.speedup.toFixed(3)}x</strong> · E: ${eff}%</span>
+          </div>
+          <div class="bar-track"><div class="bar-fill" style="width:${pct}%;"></div></div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  async function ejecutarOrda() {
+    const btn = document.getElementById('btn-run');
+    btn.disabled = true;
+    const opsElegidas = obtenerOperacionesSeleccionadas();
+    try {
+      const payload = {
+        num_registros: parseInt(document.getElementById('inp-registros').value, 10),
+        hilos_openmp: parseInt(document.getElementById('inp-hilos').value, 10),
+        tecnicos_activos: parseInt(document.getElementById('inp-tecnicos').value, 10),
+        horas_trabajadas: parseFloat(document.getElementById('inp-horas').value || '360'),
+        forzar_mpi: document.getElementById('inp-mpi').checked,
+        operaciones: opsElegidas
+      };
+      const res = await fetch('/analitica/ejecutar-orda', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(typeof bodyObj !== 'undefined' ? bodyObj : payload)
+      });
+      const data = await res.json();
+      if (data.output) {
+        actualizarKPIs(data.output);
+        await cargarHistorial();
+      }
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function ejecutarBarridoHilos() {
+    const btn = document.getElementById('btn-bench');
+    btn.disabled = true;
+    switchAnaSubtab('CURVA');
+    for (const h of [1, 2, 4, 8, 16]) {
+      document.getElementById('inp-hilos').value = h;
+      syncParams();
+      await ejecutarOrda();
+    }
+    btn.disabled = false;
+  }
+
+  async function calibrarMetricas() {
+    const btn = document.getElementById('btn-calib');
+    const recBox = document.getElementById('rec-box');
+    btn.disabled = true;
+    try {
+      const res = await fetch('/analitica/calibrar', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          num_registros: parseInt(document.getElementById('inp-registros').value, 10),
+          hilos_openmp: 16,
+          tecnicos_activos: 45,
+          horas_trabajadas: 360,
+          forzar_mpi: false,
+          operaciones: obtenerOperacionesSeleccionadas()
+        })
+      });
+      const data = await res.json();
+      const rec = data.recomendacion;
+      document.getElementById('inp-registros').value = rec.num_registros_recomendado;
+      document.getElementById('inp-hilos').value = rec.hilos_recomendados;
+      syncParams();
+      recBox.innerHTML = `<strong>Parámetros Óptimos [${rec.operaciones_evaluadas}]:</strong> N=${Number(rec.num_registros_recomendado).toLocaleString('es-PE')} · Speedup=${rec.speedup_medido.toFixed(3)}x`;
+      recBox.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function separarModoYOperaciones(rawModo) {
+    const match = String(rawModo || '').match(/^(.*?)\s*\[(.*?)\]$/);
+    if (match) return { motor: match[1].trim(), ops: match[2].split(',').map(s => s.trim()).filter(Boolean) };
+    return { motor: String(rawModo || 'OpenMP'), ops: ['ORDA'] };
+  }
+
+  async function cargarHistorial() {
+    try {
+      const res = await fetch('/analitica/historial');
+      const data = await res.json();
+      const tbody = document.getElementById('tabla-historial');
+      if (!data.data) return;
+      tbody.innerHTML = data.data.map(r => {
+        const parsed = separarModoYOperaciones(r.modo_ejecucion);
+        const tagsHtml = parsed.ops.map(op => `<span class="chip">${op}</span>`).join(' ');
+        const effNorm = Math.min(100.0, Number(r.eficiencia) * 100).toFixed(1);
+        return `
+          <tr>
+            <td>#${r.id_metrica}</td>
+            <td style="color:var(--navy-900); font-weight:600;">${parsed.motor}</td>
+            <td>${tagsHtml}</td>
+            <td>${r.nodos_mpi}</td>
+            <td>${r.hilos_openmp}</td>
+            <td>${Number(r.total_transacciones).toLocaleString('es-PE')}</td>
+            <td>${Number(r.tiempo_secuencial_ms).toFixed(1)} ms</td>
+            <td style="color:var(--sky-500); font-weight:700;">${Number(r.tiempo_paralelo_ms).toFixed(1)} ms</td>
+            <td style="color:var(--navy-900); font-weight:700;">${Number(r.speedup).toFixed(4)}x</td>
+            <td>${effNorm}%</td>
+            <td>S/ ${Number(r.orda_acumulado).toLocaleString('es-PE', {maximumFractionDigits: 0})}</td>
+          </tr>
+        `;
+      }).join('');
+    } catch (e) {}
+  }
+
+  
+  let daemonActivo = false;
+
+  async function toggleDaemonTrafico() {
+    const btn = document.getElementById('btn-ec-daemon');
+    daemonActivo = !daemonActivo;
+    const res = await fetch(`/ecommerce/trafico-continuo?activar=${daemonActivo}`, { method: 'POST' });
+    const st = await res.json();
+    daemonActivo = st.activo;
+    if (daemonActivo) {
+      btn.textContent = 'Detener Tráfico Continuo en Segundo Plano (Activo)';
+      btn.style.background = '#E11D48';
+      btn.style.borderColor = '#E11D48';
+      switchEcomSubtab('LOTES');
+    } else {
+      btn.textContent = 'Iniciar Tráfico Continuo de Búsqueda (Paralelo Multi-Web)';
+      btn.style.background = 'var(--sky-500)';
+      btn.style.borderColor = 'var(--sky-500)';
+    }
+  }
+
+  
+  let modoAtaqueSeleccionado = 'REGULADO';
+  let presetAtaqueActual = 'HARD';
+
+  function initRyzenGrid() {
+    const rGrid = document.getElementById('ryzen-cores-grid');
+    if (!rGrid) return;
+    rGrid.innerHTML = '';
+    for (let i = 0; i < 12; i++) {
+      const idStr = String(i).padStart(2, '0');
+      rGrid.innerHTML += `
+        <div class="mini-core" id="ryz-core-box-${i}" style="padding:7px 8px;">
+          <div class="mini-core-top"><span class="mini-core-id">RYZ ${idStr}</span><span class="mini-core-val" id="ryz-core-val-${i}">0.0%</span></div>
+          <div class="mini-bar-track" style="height:5px;"><div class="mini-bar-fill" id="ryz-core-bar-${i}"></div></div>
+        </div>
+      `;
+    }
+  }
+
+  function setModoAtaqueUI(modo) {
+    modoAtaqueSeleccionado = modo;
+    const esReg = (modo === 'REGULADO');
+    document.getElementById('btn-mode-reg').className = 'btn ' + (esReg ? 'btn-primary' : 'btn-secondary');
+    document.getElementById('btn-mode-cont').className = 'btn ' + (!esReg ? 'btn-primary' : 'btn-secondary');
+    document.getElementById('field-num-olas').style.display = esReg ? 'block' : 'none';
+    document.getElementById('controls-regulado').style.display = esReg ? 'block' : 'none';
+    document.getElementById('controls-continuo').style.display = esReg ? 'none' : 'flex';
+  }
+
+  function aplicarPresetAtaque(preset) {
+    presetAtaqueActual = preset;
+    ['LOW', 'MID', 'HARD'].forEach(p => {
+      const b = document.getElementById(`preset-btn-${p}`);
+      if (b) b.className = 'btn ' + (p === preset ? 'btn-primary' : 'btn-secondary');
+    });
+
+    if (preset === 'LOW') {
+      document.getElementById('inp-atk-workers').value = 1;
+      document.getElementById('inp-atk-consultas').value = 300;
+      document.getElementById('inp-atk-vol').value = 8000000;
+      document.getElementById('inp-atk-olas').value = 4;
+      document.getElementById('lbl-preset-activo').textContent = 'LOW (Carga Ligera)';
+    } else if (preset === 'MID') {
+      document.getElementById('inp-atk-workers').value = 2;
+      document.getElementById('inp-atk-consultas').value = 750;
+      document.getElementById('inp-atk-vol').value = 18000000;
+      document.getElementById('inp-atk-olas').value = 6;
+      document.getElementById('lbl-preset-activo').textContent = 'MID (Carga Moderada)';
+    } else {
+      document.getElementById('inp-atk-workers').value = 4;
+      document.getElementById('inp-atk-consultas').value = 1500;
+      document.getElementById('inp-atk-vol').value = 32000000;
+      document.getElementById('inp-atk-olas').value = 8;
+      document.getElementById('lbl-preset-activo').textContent = 'HARD (Saturación 100% i7)';
+    }
+    syncSlidersAtaque(false);
+  }
+
+  function syncSlidersAtaque(markCustom = true) {
+    const w = parseInt(document.getElementById('inp-atk-workers').value, 10);
+    const c = parseInt(document.getElementById('inp-atk-consultas').value, 10);
+    const v = parseInt(document.getElementById('inp-atk-vol').value, 10);
+    const o = parseInt(document.getElementById('inp-atk-olas').value, 10);
+    document.getElementById('lbl-atk-workers').textContent = `${w} ${w === 1 ? 'Worker' : 'Workers'}`;
+    document.getElementById('lbl-atk-consultas').textContent = `${c.toLocaleString('es-PE')} ops/ola`;
+    document.getElementById('lbl-atk-vol').textContent = `${v.toLocaleString('es-PE')} tokens`;
+    document.getElementById('lbl-atk-olas').textContent = `${o} Olas`;
+  }
+
+  function renderizarTablaOlasAtacante(lista) {
+    const tbody = document.getElementById('tabla-olas-atacante');
+    if (!tbody || !Array.isArray(lista) || lista.length === 0) return;
+    tbody.innerHTML = lista.map(r => `
+      <tr>
+        <td>#${r.id_pedido}</td>
+        <td><span class="chip">${r.worker}</span></td>
+        <td style="color:var(--navy-900); font-weight:600;">${r.operacion}</td>
+        <td>${Number(r.lote_ops).toLocaleString('es-PE')} ops</td>
+        <td style="color:var(--navy-900); font-weight:700;">${Number(r.mejora_io).toFixed(1)}x</td>
+        <td style="color:var(--sky-500); font-weight:700;">${Number(r.cpu_i7_pct).toFixed(1)}%</td>
+        <td>${r.sqli_bloq}</td>
+        <td>${r.nodo_destino}</td>
+        <td>${Number(r.rtt_ms).toFixed(0)} ms</td>
+        <td>${r.hora}</td>
+      </tr>
+    `).join('');
+  }
+
+  async function consultarTelemetriaAtacante() {
+    try {
+      const res = await fetch('/atacante/estado');
+      const data = await res.json();
+      const pill = document.getElementById('atk-conn-pill');
+      if (pill) {
+        pill.textContent = data.online
+          ? `Online · ${data.hostname} (${data.ip_tailscale})`
+          : `En Espera · ${data.ip_tailscale}`;
+      }
+      if (data.cpu_model) {
+        document.getElementById('ryzen-model-title').textContent =
+          `${data.hostname} (${data.ip_tailscale}) · ${data.cpu_model}`;
+      }
+      if (Array.isArray(data.cores_pct)) {
+        data.cores_pct.forEach((pct, idx) => {
+          const valEl = document.getElementById(`ryz-core-val-${idx}`);
+          const barEl = document.getElementById(`ryz-core-bar-${idx}`);
+          if (valEl && barEl) {
+            valEl.textContent = pct.toFixed(1) + '%';
+            barEl.style.width = Math.min(100, pct) + '%';
+            barEl.style.background = pct >= 60 ? 'var(--navy-900)' : 'var(--sky-500)';
+          }
+        });
+        document.getElementById('ryzen-avg-badge').textContent = `Carga Media Ryzen: ${Number(data.avg_pct || 0).toFixed(1)}%`;
+      }
+
+      const st = data.estado_ataque;
+      if (st) {
+        const globalStopBtn = document.getElementById('global-stop-attack-btn');
+        if (globalStopBtn) {
+          globalStopBtn.style.display = (st.activo && st.modo === 'CONTINUO') ? 'inline-flex' : 'none';
+        }
+        document.getElementById('atk-kpi-mode').textContent = st.activo ? `ACTIVO (${st.modo})` : st.modo;
+        document.getElementById('atk-kpi-mode').style.color = st.activo ? 'var(--sky-500)' : 'var(--navy-900)';
+        document.getElementById('atk-kpi-preset').textContent = `PRESET: ${st.preset}`;
+        document.getElementById('atk-kpi-olas').textContent = `Olas despachadas: ${st.olas_completadas}`;
+        document.getElementById('atk-kpi-ops').textContent = Number(st.ops_totales || 0).toLocaleString('es-PE');
+        document.getElementById('atk-kpi-cpui7').textContent = `${Number(st.pico_cpu_i7 || 0).toFixed(1)}%`;
+        document.getElementById('atk-kpi-cpuryz').textContent = `Pico Ryzen 5500X3D: ${Number(st.pico_cpu_ryzen || 0).toFixed(1)}%`;
+        document.getElementById('atk-kpi-io').textContent = `${Number(st.mejora_io_promedio || 0).toFixed(1)}x`;
+        document.getElementById('atk-kpi-sqli').textContent = `Amenazas SQLi filtradas: ${Number(st.sqli_bloqueados_total || 0).toLocaleString('es-PE')}`;
+        document.getElementById('atk-live-rtt').textContent = `RTT Medio WAN: ${Number(st.rtt_promedio_ms || 0).toFixed(0)} ms`;
+        renderizarTablaOlasAtacante(st.historial_olas);
+      }
+    } catch (e) {}
+  }
+
+  async function ejecutarAtaqueRegulado() {
+    const btn = document.getElementById('btn-launch-reg');
+    const repBox = document.getElementById('atk-report-box');
+    btn.disabled = true;
+    repBox.style.display = 'none';
+
+    const payload = {
+      activar: true,
+      preset: presetAtaqueActual,
+      workers: parseInt(document.getElementById('inp-atk-workers').value, 10),
+      num_olas: parseInt(document.getElementById('inp-atk-olas').value, 10),
+      consultas_por_ola: parseInt(document.getElementById('inp-atk-consultas').value, 10),
+      volumen_mpi: parseInt(document.getElementById('inp-atk-vol').value, 10)
+    };
+
+    btn.textContent = `Ejecutando ${payload.num_olas} Olas desde Ryzen (${payload.workers} Workers)...`;
+    const fastPoll = setInterval(() => {
+      consultarCpuReal();
+      consultarTelemetriaAtacante();
+    }, 600);
+
+    try {
+      const res = await fetch('/atacante/ejecutar-regulado', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      document.getElementById('atk-kpi-tput').textContent = `Throughput: ${Number(data.throughput_global_ops_sec || 0).toLocaleString('es-PE')} ops/s`;
+      repBox.innerHTML = `
+        <strong>[PRUEBA REGULADA COMPLETADA · PRESET ${data.preset}]:</strong><br>
+        • <b>Olas / Operaciones:</b> ${data.olas_ejecutadas} olas (${Number(data.ops_totales_procesadas).toLocaleString('es-PE')} consultas procesadas en ${data.duracion_prueba_ms} ms)<br>
+        • <b>Throughput Efectivo:</b> ${Number(data.throughput_global_ops_sec).toLocaleString('es-PE')} ops/s · RTT medio WAN: ${data.rtt_promedio_ms} ms<br>
+        • <b>Saturación Lograda:</b> Pico Esclavo i7: <b>${data.pico_cpu_i7_pct}%</b> · Pico Atacante Ryzen: <b>${data.pico_cpu_ryzen_pct}%</b><br>
+        • <b>Mitigación I/O:</b> ${data.mejora_io_promedio}x menos contención WAL · SQLi bloqueados: ${Number(data.sqli_bloqueados_total).toLocaleString('es-PE')}
+      `;
+      repBox.style.display = 'block';
+      renderizarTablaOlasAtacante(data.historial_olas);
+      await consultarTelemetriaAtacante();
+      await cargarEstadoEcommerce();
+    } finally {
+      clearInterval(fastPoll);
+      btn.disabled = false;
+      btn.textContent = 'Ejecutar Prueba Regulada y Obtener Métricas';
+    }
+  }
+
+  async function controlarAtaqueContinuo(activar) {
+    const repBox = document.getElementById('atk-report-box');
+    const payload = {
+      activar: activar,
+      preset: presetAtaqueActual,
+      workers: parseInt(document.getElementById('inp-atk-workers').value, 10),
+      num_olas: 10,
+      consultas_por_ola: parseInt(document.getElementById('inp-atk-consultas').value, 10),
+      volumen_mpi: parseInt(document.getElementById('inp-atk-vol').value, 10)
+    };
+    await fetch('/atacante/control-continuo', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    if (activar) {
+      repBox.innerHTML = `<strong>[ATAQUE CONTINUO EN EJECUCIÓN — ${presetAtaqueActual}]:</strong> Disparando ráfagas persistentes desde 100.66.197.8 con ${payload.workers} workers. Puedes cambiar a la pestaña 03 (Supercómputo Analítico) para ejecutar cálculos contables en paralelo.`;
+      repBox.style.display = 'block';
+    } else {
+      repBox.innerHTML = `<strong>[ATAQUE CONTINUO DETENIDO]:</strong> El generador WAN en 100.66.197.8 ha cesado el envío de ráfagas.`;
+      repBox.style.display = 'block';
+    }
+    await consultarTelemetriaAtacante();
+  }
+
+  async function detenerAtaqueContinuoGlobal() {
+    await controlarAtaqueContinuo(false);
+  }
+
+  initGrids();
+  initRyzenGrid();
+  renderCatalogoOperaciones();
+  syncParams();
+  cargarEstadoEcommerce();
+  cargarHistorial();
+  consultarCpuReal();
+  setInterval(consultarCpuReal, 1600);
+  setInterval(consultarTelemetriaAtacante, 1800);
+  consultarTelemetriaAtacante();
+  setInterval(cargarEstadoEcommerce, 2500);
+</script>
+</body>
+</html>
